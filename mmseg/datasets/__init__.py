@@ -1,4 +1,5 @@
-from .ade import ADE20KDataset
+from .brats import BraTsDataset
+from .brats_t2 import Bratst2Dataset
 from .builder import DATASETS, PIPELINES, build_dataloader, build_dataset
 from .chase_db1 import ChaseDB1Dataset
 from .cityscapes import CityscapesDataset
@@ -15,6 +16,6 @@ from .cocostuff import CocoStuff
 __all__ = [
     'CustomDataset', 'build_dataloader', 'ConcatDataset', 'RepeatDataset',
     'DATASETS', 'build_dataset', 'PIPELINES', 'CityscapesDataset',
-    'PascalVOCDataset', 'ADE20KDataset', 'PascalContextDataset',
+    'PascalVOCDataset', 'BraTsDataset', 'PascalContextDataset', 'Bratst2Dataset',
     'ChaseDB1Dataset', 'DRIVEDataset', 'HRFDataset', 'STAREDataset', 'MapillaryDataset', 'CocoStuff'
 ]

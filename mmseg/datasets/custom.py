@@ -12,6 +12,7 @@ from mmseg.core import eval_metrics
 from mmseg.utils import get_root_logger
 from .builder import DATASETS
 from .pipelines import Compose
+import re
 
 
 @DATASETS.register_module()
@@ -93,7 +94,7 @@ class CustomDataset(Dataset):
         self.data_root = data_root
         self.test_mode = test_mode
         self.ignore_index = ignore_index
-        self.reduce_zero_label = reduce_zero_label
+        self.reduce_zero_label = False # mark lixiang
         self.label_map = None
         self.CLASSES, self.PALETTE = self.get_classes_and_palette(
             classes, palette)
@@ -111,6 +112,24 @@ class CustomDataset(Dataset):
         self.img_infos = self.load_annotations(self.img_dir, self.img_suffix,
                                                self.ann_dir,
                                                self.seg_map_suffix, self.split)
+        
+        # self.img_infos = sorted(self.img_infos, key=lambda x: int(x['filename'].split('_')[1]))
+        # self.img_infos = sorted(self.img_infos, key=lambda x: int(re.search(r'_(\d+)\.', x['filename']).group(1)))
+        # self.img_infos = sorted(self.img_infos, key=lambda x: x['filename'])
+
+
+        # for tta test
+        def sort_key(x):
+            # 先按照第一个规则排序：文件名中的数字大小
+            key1 = int(x['filename'].split('_')[1])
+            
+            # 然后按照第二个规则排序：文件名中的数字大小
+            key2 = int(re.search(r'_(\d+)\.', x['filename']).group(1))
+            
+            return (key1, key2)
+        
+        # 进行排序，同时考虑两个规则
+        self.img_infos = sorted(self.img_infos, key=sort_key)
 
     def __len__(self):
         """Total number of samples of data."""
@@ -186,8 +205,10 @@ class CustomDataset(Dataset):
         """
 
         if self.test_mode:
+            # print("debug----------------",idx)
             return self.prepare_test_img(idx)
         else:
+            # print("debug----------------",idx)
             return self.prepare_train_img(idx)
 
     def prepare_train_img(self, idx):
@@ -204,6 +225,7 @@ class CustomDataset(Dataset):
         img_info = self.img_infos[idx]
         ann_info = self.get_ann_info(idx)
         results = dict(img_info=img_info, ann_info=ann_info)
+        # print(results)
         self.pre_pipeline(results)
         return self.pipeline(results)
 
@@ -220,6 +242,7 @@ class CustomDataset(Dataset):
 
         img_info = self.img_infos[idx]
         results = dict(img_info=img_info)
+        # print(results)
         self.pre_pipeline(results)
         return self.pipeline(results)
 
@@ -329,6 +352,8 @@ class CustomDataset(Dataset):
             raise KeyError('metric {} is not supported'.format(metric))
         eval_results = {}
         gt_seg_maps = self.get_gt_seg_maps(efficient_test)
+        # print(np.unique(gt_seg_maps))
+        # gt_seg_maps[gt_seg_maps==255]=1
         if self.CLASSES is None:
             num_classes = len(
                 reduce(np.union1d, [np.unique(_) for _ in gt_seg_maps]))

@@ -1,0 +1,1 @@
+bash ./tools/dist_stta.sh 1 | tee stta.log

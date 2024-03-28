@@ -145,6 +145,9 @@ dmypy.json
 cython_debug/
 
 /data
+/pretrained
+/work_dirs
+/stta
 
 # PyCharm
 #  JetBrains specific template is maintainted in a separate JetBrains.gitignore that can

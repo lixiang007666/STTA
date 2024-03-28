@@ -142,6 +142,7 @@ def main():
         val_dataset = copy.deepcopy(cfg.data.val)
         val_dataset.pipeline = cfg.data.train.pipeline
         datasets.append(build_dataset(val_dataset))
+    print(datasets)
     if cfg.checkpoint_config is not None:
         # save mmseg version, config file content and class names in
         # checkpoints as meta data

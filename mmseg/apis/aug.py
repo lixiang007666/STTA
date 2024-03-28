@@ -2,7 +2,6 @@ import os.path as osp
 import pickle
 import shutil
 import tempfile
-import datetime
 
 import mmcv
 import numpy as np
@@ -21,11 +20,35 @@ import kornia
 import torch
 import random
 import torch.nn as nn
-import torch.nn.functional as F
 
 IMG_MEAN = np.array((104.00698793, 116.66876762, 122.67891434), dtype=np.float32)
 import pdb
 
+
+def colorJitter(colorJitter, img_mean, data = None, target = None, s=0.25):
+    # s is the strength of colorjitter
+    #colorJitter
+    if not (data is None):
+        if data.shape[1]==3:
+            if colorJitter > 0.2:
+                img_mean, _ = torch.broadcast_tensors(img_mean.unsqueeze(0).unsqueeze(2).unsqueeze(3), data)
+                seq = nn.Sequential(kornia.augmentation.ColorJitter(brightness=s,contrast=s,saturation=s,hue=s))
+                data = (data+img_mean)/255
+                data = seq(data)
+                data = (data*255-img_mean).float()
+    return data
+
+def gaussian_blur(blur, data = None, target = None):
+    if not (data is None):
+        if data.shape[1]==3:
+            if blur > 0.5:
+                sigma = np.random.uniform(0.15,1.15)
+                kernel_size_y = int(np.floor(np.ceil(0.1 * data.shape[2]) - 0.5 + np.ceil(0.1 * data.shape[2]) % 2))
+                kernel_size_x = int(np.floor(np.ceil(0.1 * data.shape[3]) - 0.5 + np.ceil(0.1 * data.shape[3]) % 2))
+                kernel_size = (kernel_size_y, kernel_size_x)
+                seq = nn.Sequential(kornia.filters.GaussianBlur2d(kernel_size=kernel_size, sigma=(sigma, sigma)))
+                data = seq(data)
+    return data
 
 def update_ema_variables(ema_model, model, alpha_teacher, iteration=None):
     # Use the "true" average until the exponential average is more correct
@@ -56,23 +79,6 @@ def np2tmp(array, temp_file_name=None):
             suffix='.npy', delete=False).name
     np.save(temp_file_name, array)
     return temp_file_name
-
-
-
-class EntropyRegularization(nn.Module):
-    def __init__(self, weight=1.0):
-        super(EntropyRegularization, self).__init__()
-        self.weight = weight
-        self.softmax = nn.Softmax(dim=1)  # Softmax 层用于计算概率分布
-
-    def forward(self, logits):
-        # 计算概率分布
-        probabilities = self.softmax(logits.float())
-        # 计算熵
-        entropy = -(probabilities * torch.log(probabilities + 1e-9)).sum(dim=1).mean()
-        # 返回加权的熵正则化损失
-        return self.weight * entropy
-    
 
 def softmax_entropy(x: torch.Tensor) -> torch.Tensor:
     """Entropy of softmax distribution from logits."""
@@ -107,24 +113,49 @@ def single_gpu_stta(model,
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
     param_list = []
-    out_dir = "./stta/"+str(datetime.datetime.now())
     for name, param in model.named_parameters():
-        if param.requires_grad:
+        #if "bias" in name or "weight" in name:
+        #    param.requires_grad=True
+        if param.requires_grad:# and "decode" in name:
             param_list.append(param)
         else:
             param.requires_grad=False
-    optimizer = torch.optim.Adam(param_list, lr=0.00006/8, betas=(0.9, 0.999))
+    #optimizer = torch.optim.SGD(param_list, lr=0.00006)
+    #lr=0.00006, betas=(0.9, 0.999), weight_decay=0.01
+    optimizer = torch.optim.Adam(param_list, lr=0.00006/8, betas=(0.9, 0.999))#Batchsize=1 now, was 8 during cityscapes training
     for i, data in enumerate(data_loader):
+        #if i > 50:
+        #    break
         model.eval()
         ema_model.eval()
         anchor_model.eval()
+        #img = data['img'][0]
+        if i == 0:
+            for ii in range(len(data['img'])):
+                print(ii, data['img_metas'][i])
+        #print(len(data['img']), [data['img'][i].shape for i in range(len(data['img']))])
+        #img_meta = data['img_metas'][0]
+        #for j in range(32):
+        #    data["img_metas"].append(img_meta)
+        #    img_ = colorJitter(colorJitter = random.uniform(0, 1), img_mean = torch.from_numpy(IMG_MEAN.copy()).cuda(), data = img.clone().cuda())
+        #    img_ = gaussian_blur(blur = random.uniform(0, 1), data = img_)
+        #    data['img'].append(img_)
         with torch.no_grad():
-            # print(ema_model(return_loss=False, **data))
+            result, probs, preds = model(return_loss=False, **data)
+        """
+        with torch.no_grad():
             result, probs, preds = ema_model(return_loss=False, **data)
             _, probs_, _ = anchor_model(return_loss=False, **data)
-            mask = (probs_[4][0] > 0.69).astype(np.int64) 
+            mask = (probs_[4][0] > 0.69).astype(np.int64) # 0.74 was the 5% quantile for cityscapes, therefore we use 0.69 here
+            #print(np.quantile(probs_[4][0], np.arange(0., 1+1e-5, 0.01) ))#np.median(probs_[4][0]))
             result = [(mask*preds[4][0] + (1.-mask)*result[0]).astype(np.int64)]
+            #print(preds[0], preds[0].shape, len(preds)) #(1, 1080, 1090) 14
+            #pred_standard = preds[2]
+            #preds = [(a==pred_standard).astype(float) for i, a in enumerate(preds) if i != 2]
+            #weight = torch.from_numpy((np.stack(preds).mean(0) > 0.5).astype(float)).cuda()
             weight = 1.
+            #result = model(return_loss=False, **data)
+        """
         if show or out_dir:
             img_tensor = data['img'][0]
             img_metas = data['img_metas'][0].data[0]
@@ -150,14 +181,10 @@ def single_gpu_stta(model,
                     out_file=out_file)
         if isinstance(result, list):
             if len(data['img'])==14:
-                img_id = 4 #The default size without flip 
+                img_id = 4 
             else:
                 img_id = 0
-
-            with torch.enable_grad():
-                entropy_regularization = EntropyRegularization(weight=0.1)
-                entropy_loss = entropy_regularization(torch.from_numpy(np.sum(np.array(result), axis=0)).cuda().float())
-                loss = model.forward(return_loss=True, img=data['img'][img_id], img_metas=data['img_metas'][img_id].data[0], gt_semantic_seg=torch.from_numpy(result[0]).cuda().unsqueeze(0).unsqueeze(0))
+            #loss = model.forward(return_loss=True, img=data['img'][img_id], img_metas=data['img_metas'][img_id].data[0], gt_semantic_seg=torch.from_numpy(result[0]).cuda().unsqueeze(0).unsqueeze(0))
             if efficient_test:
                 result = [np2tmp(_) for _ in result]
             results.extend(result)
@@ -165,192 +192,24 @@ def single_gpu_stta(model,
             if efficient_test:
                 result = np2tmp(result)
             results.append(result)
-        
 
-        print(entropy_loss)
-        print(torch.mean(weight * loss["decode.loss_seg"]))
-        total_loss = torch.mean(weight * loss["decode.loss_seg"]) + entropy_loss
-
-
-        total_loss.backward()
+        """
+        torch.mean(weight*loss["decode.loss_seg"]).backward()
         optimizer.step()
         optimizer.zero_grad()
         ema_model = update_ema_variables(ema_model = ema_model, model = model, alpha_teacher=0.999)
-
-        WD_cache = {}
-        WS_cache = {}
-        th = 128
-        j = 0
-        # Determine if the layer is deep or shallow
-        for name, param in anchor.items():
-            # is_deep_layer = not (name.startswith('layer1') or name.startswith('layer2') or name.endswith('layer1') or name.endswith('layer2'))
-            is_deep_layer = name.startswith('module.decode_head') 
-            if is_deep_layer:
-                WD_cache[name] = param
-            else:
-                WS_cache[name] = param
-
-        # Assuming j is the current iteration/slice index and th is the threshold
-        # WD_cache and WS_cache are dictionaries holding the deep and shallow caches, respectively
-        # M is a binary mask tensor generated with a Bernoulli distribution
-        for nm, m in model.named_modules():
+        for nm, m  in model.named_modules():
             for npp, p in m.named_parameters():
-                is_deep_layer = nm.startswith('module.decode_head')
                 if npp in ['weight', 'bias'] and p.requires_grad:
-                    mask = (torch.rand(p.shape)<0.01).float().cuda() 
-                    if j == th and is_deep_layer:
-                        # Restore from deep cache
-                        with torch.no_grad():
-                            print("deep cache")
-                            p.data = WD_cache[f"{nm}.{npp}"]
-                    elif not is_deep_layer:
-                        # Partially restore from shallow cache
-                        with torch.no_grad():
-                            print("shallow cache")
-                            p.data = WS_cache[f"{nm}.{npp}"] * mask + p * (1 - mask)
-            j += 1
-        j = 0
+                    mask = (torch.rand(p.shape)<0.01).float().cuda() #* 0.5
+                    with torch.no_grad():
+                        p.data = anchor[f"{nm}.{npp}"] * mask + p * (1.-mask)
+        """
 
         batch_size = data['img'][0].size(0)
-        print("batch_size:",batch_size)
         for _ in range(batch_size):
             prog_bar.update()
     return results
-
-
-
-
-def compute_uncertainty(logits):
-    """
-    Compute uncertainty from softmax logits.
-
-    Args:
-        logits (torch.Tensor): Softmax logits.
-
-    Returns:
-        torch.Tensor: Uncertainty values for each prediction.
-    """
-    probabilities = torch.softmax(logits, dim=1)
-    uncertainty = 1.0 - torch.max(probabilities, dim=1).values
-    return uncertainty
-
-# def single_gpu_our_with_uncertainty(model,
-#                                    data_loader,
-#                                    show=False,
-#                                    out_dir=None,
-#                                    efficient_test=False,
-#                                    anchor=None,
-#                                    ema_model=None,
-#                                    anchor_model=None,
-#                                    uncertainty_threshold=0.3):
-#     """Test with single GPU, incorporating uncertainty-based pseudo-labeling.
-
-#     Args:
-#         model (nn.Module): Model to be tested.
-#         data_loader (utils.data.Dataloader): PyTorch data loader.
-#         show (bool): Whether show results during inference. Default: False.
-#         out_dir (str, optional): If specified, the results will be dumped into
-#             the directory to save output results.
-#         efficient_test (bool): Whether save the results as local numpy files to
-#             save CPU memory during evaluation. Default: False.
-#         uncertainty_threshold (float): Threshold for pseudo-labeling based on uncertainty.
-
-#     Returns:
-#         list: The prediction results.
-#     """
-#     print("debug0---------------------------------")
-#     model.eval()
-#     anchor_model.eval()
-#     results = []
-#     dataset = data_loader.dataset
-#     prog_bar = mmcv.ProgressBar(len(dataset))
-#     param_list = []
-#     out_dir = "./cotta/" + str(datetime.datetime.now())
-
-#     for name, param in model.named_parameters():
-#         if param.requires_grad:
-#             param_list.append(param)
-#             print(name)
-#         else:
-#             param.requires_grad = False
-
-#     optimizer = torch.optim.Adam(param_list, lr=0.00006 / 8, betas=(0.9, 0.999))  # Batchsize=1 now, was 8 during cityscapes training
-
-#     for i, data in enumerate(data_loader):
-#         model.eval()
-#         ema_model.eval()
-#         anchor_model.eval()
-#         with torch.no_grad():
-#             result, probs, preds = ema_model(return_loss=False, **data)
-#             _, probs_, _ = anchor_model(return_loss=False, **data)
-#             mask = (probs_[4][0] > 0.69).astype(np.int64)  # 0.74 was the 5% quantile for cityscapes, therefore we use 0.69 here
-#             result = [(mask * preds[4][0] + (1. - mask) * result[0]).astype(np.int64)]
-#             weight = 1.
-
-#         if show or out_dir:
-#             img_tensor = data['img'][0]
-#             img_metas = data['img_metas'][0].data[0]
-#             imgs = tensor2imgs(img_tensor, **img_metas[0]['img_norm_cfg'])
-#             assert len(imgs) == len(img_metas)
-#             for img, img_meta in zip(imgs, img_metas):
-#                 h, w, _ = img_meta['img_shape']
-#                 img_show = img[:h, :w, :]
-
-#                 ori_h, ori_w = img_meta['ori_shape'][:-1]
-#                 img_show = mmcv.imresize(img_show, (ori_w, ori_h))
-
-#                 if out_dir:
-#                     out_file = osp.join(out_dir, img_meta['ori_filename'])
-#                 else:
-#                     out_file = None
-
-#                 model.module.show_result(
-#                     img_show,
-#                     result,
-#                     palette=dataset.PALETTE,
-#                     show=show,
-#                     out_file=out_file)
-
-#         if isinstance(result, list):
-#             if len(data['img']) == 14:
-#                 img_id = 4  # The default size without flip
-#             else:
-#                 img_id = 0
-
-#             # Compute uncertainty from the softmax logits
-#             logits = model(return_loss=False, **data)['seg_logit']
-#             uncertainty = compute_uncertainty(logits.detach())
-
-#             # Apply pseudo-labeling based on uncertainty
-#             pseudo_labels = np.copy(result[0])
-#             pseudo_labels[uncertainty > uncertainty_threshold] = 255  # Set uncertain regions to a special label (e.g., 255)
-
-#             loss = model.forward(return_loss=True, img=data['img'][img_id], img_metas=data['img_metas'][img_id].data[0], gt_semantic_seg=torch.from_numpy(pseudo_labels).cuda().unsqueeze(0).unsqueeze(0))
-#             if efficient_test:
-#                 result = [np2tmp(_) for _ in result]
-#             results.extend(result)
-#         else:
-#             if efficient_test:
-#                 result = np2tmp(result)
-#             results.append(result)
-
-#         torch.mean(weight * loss["decode.loss_seg"]).backward()
-#         optimizer.step()
-#         optimizer.zero_grad()
-#         ema_model = update_ema_variables(ema_model=ema_model, model=model, alpha_teacher=0.999)
-#         for nm, m in model.named_modules():
-#             for npp, p in m.named_parameters():
-#                 if npp in ['weight', 'bias'] and p.requires_grad:
-#                     mask = (torch.rand(p.shape) < 0.01).float().cuda()
-#                     with torch.no_grad():
-#                         p.data = anchor[f"{nm}.{npp}"] * mask + p * (1. - mask)
-
-#         batch_size = data['img'][0].size(0)
-#         print("batch_size---------------------------------------",batch_size)
-#         for _ in range(batch_size):
-#             prog_bar.update()
-#     return results
-
 
 
 
@@ -380,12 +239,16 @@ def single_gpu_tent(model,
     prog_bar = mmcv.ProgressBar(len(dataset))
     param_list = []
     for name, param in model.named_parameters():
+        #if "bias" in name or "weight" in name:
+        #    param.requires_grad=True
         if param.requires_grad:
             if param.requires_grad and ("norm" in name or "bn" in name):
                 param_list.append(param)
                 print (name)
             else:
                 param.requires_grad=False
+    #optimizer = torch.optim.SGD(param_list, lr=0.0001)
+    #lr=0.00006, betas=(0.9, 0.999), weight_decay=0.01
     optimizer = torch.optim.Adam(param_list, lr=0.00006/8, betas=(0.9, 0.999))
     for i, data in enumerate(data_loader):
         with torch.no_grad():
@@ -426,7 +289,7 @@ def single_gpu_tent(model,
                 result = np2tmp(result)
             results.append(result)
 
-        torch.mean(loss["decode.loss_seg"]).backward()
+        loss["decode.loss_seg"].backward()
         optimizer.step()
         optimizer.zero_grad()
 
@@ -434,7 +297,6 @@ def single_gpu_tent(model,
         for _ in range(batch_size):
             prog_bar.update()
     return results
-
 
 
 
@@ -462,7 +324,6 @@ def single_gpu_test(model,
     results = []
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
-    out_dir = "./baseline/"+str(datetime.datetime.now())
     for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, **data)
