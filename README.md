@@ -20,4 +20,5 @@ pip3 install -e . --user
 
 
 bash tools/dist_source_train.sh 8
+bash stta.sh
 
