@@ -17,8 +17,6 @@ TODO
 ### Installation
 
 ```python
-git clone https://github.com/lixiang007666/STTA.git
-cd STTA
 conda create -n stta python=3.9.7
 conda activate stta
 pip3 install torchvision==0.8.2
