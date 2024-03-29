@@ -5,7 +5,8 @@ This is the official repository for the paper: [Cache-Driven Spatial Test-Time A
 
 ## News
 Here is the latest news:
-- :rocket: The first version of the code has been released. The complete and optimized version of STTA will be released shortly.
+- :rocket: The first version of the code has been released, and a complete, optimized version of STTA will be released shortly.
+- :rocket: The paper is in submission.
 
 ## Overview 
 TODO
