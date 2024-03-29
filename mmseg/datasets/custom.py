@@ -94,7 +94,7 @@ class CustomDataset(Dataset):
         self.data_root = data_root
         self.test_mode = test_mode
         self.ignore_index = ignore_index
-        self.reduce_zero_label = False # mark lixiang
+        self.reduce_zero_label = False # mark
         self.label_map = None
         self.CLASSES, self.PALETTE = self.get_classes_and_palette(
             classes, palette)
