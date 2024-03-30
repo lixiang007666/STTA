@@ -27,7 +27,7 @@ pip3 install opencv-python==4.5.1.48
 pip3 install -e . --user
 ```
 
-### Training and Testing
+### 📉 Training and Testing
 ```shell
 bash tools/dist_source_train.sh 8
 bash stta.sh
