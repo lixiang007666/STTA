@@ -15,7 +15,7 @@ TODO
 
 ## Quick Start
 
-### Installation
+### ⚙️ Installation
 
 ```python
 conda create -n stta python=3.9.7
