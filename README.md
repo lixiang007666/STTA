@@ -10,8 +10,10 @@ Here is the latest news:
 - :rocket: WIP.
 
 ## Overview 
-TODO
 
+
+> [!NOTE]
+The abstract graphic will be published shortly.
 
 ## Quick Start
 
