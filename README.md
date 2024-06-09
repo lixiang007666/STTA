@@ -11,6 +11,8 @@ Here is the latest news:
 
 ## Overview 
 
+Test-Time Adaptation (TTA) shows promise for addressing the domain gap between source and target modalities in medical image segmentation methods. Furthermore, TTA enables the model to quickly fine-tune itself during testing, enabling it to adapt to the continuously evolving data distribution in the medical clinical environment. Consequently, we introduce Spatial Test-Time Adaptation (STTA), for the first time considering the integration of inter-slice spatial information from 3D volumes with TTA.
+
 
 > [!NOTE]
 The abstract graphic will be published shortly.
